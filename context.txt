@@ -1,0 +1,2488 @@
+If I want to make money on the 15 minute gold market on kalshi, specifically looking to make money off the volatility with as much upside for as little risk as possible what is a quant strategy that could be implemented which does not require super fast latency (no super high frequency strategies)
+For Kalshi's 15-minute Gold market (KXGOLD15M), I would build a strategy around volatility-adjusted directional probability, market mispricing, and asymmetric risk management.
+
+I would specifically avoid traditional high-frequency trading, simple momentum chasing, and trying to predict every tiny gold movement.
+
+The goal would be:
+
+Capture opportunities when gold moves enough to create a meaningful probability imbalance.
+
+Identify when Kalshi's YES/NO prices haven't adjusted appropriately to that movement.
+
+Enter positions with a favorable expected value.
+
+Limit downside to a predetermined amount per trade.
+
+Make relatively few, high-conviction trades instead of trading every 15-minute window.
+
+There is an important distinction: you cannot simultaneously maximize upside and minimize risk without sacrificing something. But you can build a strategy with limited per-trade downside and potentially attractive risk-adjusted returns.
+
+1. Understand the market we're trading
+The market I am referring to is KXGOLD15M.
+
+Its settlement mechanism is particularly important:
+
+A new market opens every 15 minutes.
+
+It establishes a starting gold price.
+
+At expiration, it compares the ending gold price against the starting price.
+
+YES wins if the ending price is greater than or equal to the starting price.
+
+NO wins if the ending price is lower.
+
+The settlement uses Pyth's gold price feed and its one-minute candle closes, rather than simply using whatever spot-gold price you see on TradingView. 
+
+PM Countdown
++1
+
+This means we're effectively trading a binary option on the direction of gold over a very short period.
+
+For example:
+
+Contract
+
+Price
+
+Potential payout
+
+YES
+
+$0.40
+
+$1.00
+
+NO
+
+$0.60
+
+$1.00
+
+If you buy YES at $0.40:
+
+Gold finishes up: +$0.60 gross profit.
+
+Gold finishes down: -$0.40 gross loss.
+
+The interesting part is that you don't actually need to predict whether gold will go up or down with extraordinary accuracy.
+
+You need to predict the outcome more accurately than the market's current implied probability, after fees.
+
+That's where I would concentrate the quantitative work.
+
+2. My recommended strategy: Volatility-adjusted probability arbitrage
+My preferred starting strategy
+I would build a model that estimates the probability of YES winning based on:
+
+Current gold price relative to the opening price.
+
+Realized volatility.
+
+Time remaining.
+
+Short-term momentum.
+
+Volatility regime.
+
+Market pricing and order book liquidity.
+
+The model then compares its estimated probability against Kalshi's actual executable prices.
+
+This is fundamentally different from simply buying YES whenever gold goes up.
+
+Step A: Calculate the normalized distance from the target
+Suppose a 15-minute market opens at:
+
+P
+0
+=
+$
+4
+,
+000
+P 
+0
+​
+ =$4,000
+Five minutes later:
+
+P
+t
+=
+$
+4
+,
+002
+P 
+t
+​
+ =$4,002
+There are 10 minutes remaining.
+
+A $2 increase might be significant in a quiet market but meaningless in a volatile market.
+
+We need to normalize the movement by expected volatility.
+
+Define:
+
+z
+t
+=
+ln
+⁡
+(
+P
+t
+/
+P
+0
+)
+σ
+1
+m
+T
+z 
+t
+​
+ = 
+σ 
+1m
+​
+  
+T
+​
+ 
+ln(P 
+t
+​
+ /P 
+0
+​
+ )
+​
+ 
+Where:
+
+P
+0
+P 
+0
+​
+  = opening gold price.
+
+P
+t
+P 
+t
+​
+  = current gold price.
+
+σ
+1
+m
+σ 
+1m
+​
+  = estimated one-minute volatility of log returns.
+
+T
+T = remaining minutes.
+
+This gives us a standardized measure of how far gold has moved relative to its expected remaining movement.
+
+For example:
+
+Situation
+
+Normalized distance
+
+Gold slightly above target, high volatility
+
++0.2
+
+Gold slightly above target, low volatility
+
++1.5
+
+Gold below target, high volatility
+
+-0.3
+
+Gold significantly below target, low volatility
+
+-2.0
+
+The important insight:
+
+A $2 movement doesn't mean anything by itself. Its significance depends on the volatility and time remaining.
+
+Step B: Calculate the probability of winning
+Under a simplified lognormal price model, we can estimate:
+
+P
+(
+Y
+E
+S
+)
+=
+Φ
+(
+z
+t
+)
+P(YES)=Φ(z 
+t
+​
+ )
+Where 
+Φ
+Φ is the standard normal cumulative distribution function.
+
+For example:
+
+Z-score
+
+Estimated YES probability
+
+-2.0
+
+2.3%
+
+-1.5
+
+6.7%
+
+-1.0
+
+15.9%
+
+-0.5
+
+30.9%
+
+0.0
+
+50.0%
+
++0.5
+
+69.1%
+
++1.0
+
+84.1%
+
++1.5
+
+93.3%
+
++2.0
+
+97.7%
+
+These are theoretical probabilities, not validated forecasts.
+
+In the actual implementation, I would use a calibrated model trained on historical gold data instead of relying exclusively on the normal distribution assumption.
+
+That model could account for momentum, jumps, volatility clustering, and time-of-day effects.
+
+Step C: Compare our probability against Kalshi's price
+This is where the actual trading strategy comes in.
+
+Suppose our model estimates:
+
+P
+(
+Y
+E
+S
+)
+=
+0.72
+P(YES)=0.72
+But Kalshi is offering YES at:
+
+A
+s
+k
+(
+Y
+E
+S
+)
+=
+0.58
+Ask(YES)=0.58
+The market is effectively pricing YES at 58%, while our model estimates 72%.
+
+That's a potential opportunity.
+
+However, we need to account for transaction fees.
+
+Kalshi's standard taker fee schedule uses a probability-dependent fee, with fees generally highest around 50 cents. The published standard formula is:
+
+F
+e
+e
+=
+⌈
+0.07
+×
+N
+×
+P
+(
+1
+−
+P
+)
+⌉
+cent
+Fee=⌈0.07×N×P(1−P)⌉ 
+cent
+​
+ 
+Where 
+N
+N is the number of contracts and 
+P
+P is the contract price in dollars. The applicable market-specific schedule should be checked before trading. 
+
+Kalshi
++1
+
+For a single contract purchased at $0.58:
+
+Purchase price: $0.58
+
+Approximate taker fee: $0.017
+
+Total cost: approximately $0.597
+
+Expected payout: $0.72
+
+Expected profit: approximately $0.123
+
+That's approximately 20.6% expected return on the amount invested.
+
+This is an illustrative calculation, not an actual trading signal.
+
+The general expected-value equation is:
+
+E
+V
+=
+q
+−
+a
+−
+f
+EV=q−a−f
+Where:
+
+q
+q = our estimated probability of winning.
+
+a
+a = executable ask price.
+
+f
+f = transaction fee per contract.
+
+I would add an additional safety margin for slippage and model uncertainty.
+
+For example, only trade when:
+
+q
+−
+a
+−
+f
+>
+0.05
+q−a−f>0.05
+In other words, require at least five cents of estimated net edge per contract.
+
+I would experiment with thresholds between 3 and 10 cents during backtesting.
+
+Step D: Trade both directions
+This is important.
+
+The strategy should not have a bullish or bearish bias.
+
+If gold is significantly above the starting price, we might buy YES.
+
+If gold is significantly below the starting price, we might buy NO.
+
+For example:
+
+Example trading decisions
+
+Scenario A: Bullish
+
+Buy YES
+Gold is above its opening price and remaining volatility is relatively low.
+
+Model probability
+
+YES: 85%
+
+Kalshi ask
+
+YES: 68¢
+
+Gross edge
+
+17¢
+
+Scenario B: Bearish
+
+Buy NO
+Gold is below its opening price and remaining volatility is relatively low.
+
+Model probability
+
+NO: 82%
+
+Kalshi ask
+
+NO: 65¢
+
+Gross edge
+
+17¢
+
+Hypothetical prices and probabilities, before fees.
+
+This allows the algorithm to exploit whichever direction offers the better risk-adjusted opportunity.
+
+3. Add a volatility regime detector
+This is the component I think could make the strategy considerably more interesting.
+
+Gold doesn't move consistently throughout the day. There are periods of extremely low volatility, periods of strong directional movement, and periods of erratic movement.
+
+I would classify the market into three regimes.
+
+Regime 1
+Low volatility
+
+Gold is moving slowly and consistently.
+
+Favor probability-based trades when gold has established a meaningful distance from the target.
+
+Lower remaining volatility can make the current price advantage more predictive.
+
+Look for favorable YES/NO mispricing.
+
+Regime 2
+Volatility expansion
+
+Gold starts moving significantly faster than it has been.
+
+Look for directional momentum.
+
+Detect whether Kalshi is adjusting its odds too slowly.
+
+Avoid entering immediately after an extreme jump without checking whether the price has already incorporated it.
+
+Regime 3
+Unstable / choppy
+
+Gold is experiencing large movements in both directions.
+
+Increase the required probability edge.
+
+Avoid trades near the target.
+
+Prefer no position when the model has low confidence.
+
+I would measure volatility expansion using an EWMA volatility estimator:
+
+σ
+t
+2
+=
+λ
+σ
+t
+−
+1
+2
++
+(
+1
+−
+λ
+)
+r
+t
+−
+1
+2
+σ 
+t
+2
+​
+ =λσ 
+t−1
+2
+​
+ +(1−λ)r 
+t−1
+2
+​
+ 
+This gives more weight to recent price movements while retaining information from earlier observations.
+
+I would also compare short-term realized volatility against a longer-term baseline:
+
+V
+R
+=
+σ
+short
+σ
+long
+VR= 
+σ 
+long
+​
+ 
+σ 
+short
+​
+ 
+​
+ 
+A high ratio indicates volatility expansion.
+
+For example:
+
+VR below 0.8: unusually quiet.
+
+VR between 0.8 and 1.3: relatively normal.
+
+VR above 1.3: elevated volatility.
+
+VR above 2.0: extreme volatility.
+
+These thresholds are starting hypotheses, not established optimal values.
+
+4. Add momentum and order book imbalance
+I would add two secondary signals.
+
+Neither should independently trigger a trade.
+
+Momentum confirmation
+
+Calculate returns over multiple intervals:
+
+M
+3
+=
+ln
+⁡
+(
+P
+t
+/
+P
+t
+−
+3
+)
+M 
+3
+​
+ =ln(P 
+t
+​
+ /P 
+t−3
+​
+ )
+M
+5
+=
+ln
+⁡
+(
+P
+t
+/
+P
+t
+−
+5
+)
+M 
+5
+​
+ =ln(P 
+t
+​
+ /P 
+t−5
+​
+ )
+M
+10
+=
+ln
+⁡
+(
+P
+t
+/
+P
+t
+−
+10
+)
+M 
+10
+​
+ =ln(P 
+t
+​
+ /P 
+t−10
+​
+ )
+This helps distinguish between:
+
+A movement that has been consistently directional.
+
+A sudden spike followed by a reversal.
+
+A market that has been oscillating around its opening price.
+
+Order book imbalance
+
+Since you have already worked with order book imbalance in your Kalshi bot, I would reuse that infrastructure.
+
+Calculate:
+
+O
+B
+I
+=
+V
+b
+i
+d
+−
+V
+a
+s
+k
+V
+b
+i
+d
++
+V
+a
+s
+k
+OBI= 
+V 
+bid
+​
+ +V 
+ask
+​
+ 
+V 
+bid
+​
+ −V 
+ask
+​
+ 
+​
+ 
+Where:
+
+V
+b
+i
+d
+V 
+bid
+​
+  = volume resting on the bid.
+
+V
+a
+s
+k
+V 
+ask
+​
+  = volume resting on the ask.
+
+This can help identify whether market participants are leaning toward one direction.
+
+I would use OBI primarily for trade confirmation and execution rather than as the primary predictive signal.
+
+Kalshi's Pro interface exposes order book depth, trade history, underlying index charts, and market prices, which are useful inputs for this kind of analysis. 
+
+Kalshi Pro
+
+5. Risk management: How I would maximize risk-adjusted returns
+This is arguably more important than the prediction model.
+
+The biggest danger with 15-minute markets is that there are so many opportunities to trade that an algorithm can continuously expose itself to risk.
+
+I would implement the following:
+
+Rule
+
+Initial setting
+
+Maximum risk per trade
+
+0.5% bankroll
+
+Maximum daily loss
+
+2% bankroll
+
+Maximum simultaneous positions
+
+1
+
+Minimum net expected edge
+
+5¢
+
+Minimum time remaining
+
+3 minutes
+
+Maximum consecutive losses
+
+3 before a cooldown
+
+These are conservative experimental parameters, not statistically optimized values.
+
+Position sizing
+
+Eventually, I would use fractional Kelly sizing.
+
+For a binary contract with price 
+a
+a and estimated probability 
+q
+q:
+
+f
+∗
+=
+q
+−
+a
+1
+−
+a
+f 
+∗
+ = 
+1−a
+q−a
+​
+ 
+This is the simplified full-Kelly fraction before fees.
+
+I would start with quarter Kelly, further reduced for fees and model uncertainty, and impose a hard exposure cap.
+
+One important distinction: buying a contract and holding it to settlement limits the loss to the purchase cost plus fees. It does not guarantee that the probability estimate is correct.
+
+Also, I would generally avoid closing and reopening positions repeatedly. Every additional transaction can introduce more spread and fees.
+
+6. How I would actually implement this quant system
+I would separate the system into five components.
+
+KXGOLD15M Quant Architecture
+1. Data ingestion
+
+Pyth gold feed · Kalshi order book · Trade history
+
+2. Feature engineering
+
+Realized volatility · Momentum · Z-score · OBI · Time remaining
+
+3. Probability model
+
+Estimate P(YES) and P(NO) · Calibrate probabilities
+
+4. Opportunity detector
+
+Compare model probability vs executable prices · Calculate net EV
+
+5. Execution and risk management
+
+Limit orders · Position sizing · Exposure limits · Trade logging
+
+Suggested technology stack
+Given your previous Kalshi bot work, I would reuse as much of that infrastructure as possible.
+
+Component
+
+Technology
+
+Exchange connection
+
+Kalshi API
+
+Gold pricing
+
+Pyth Network
+
+Market data storage
+
+SQLite initially
+
+Feature engineering
+
+Python, NumPy, Pandas
+
+Statistical modeling
+
+SciPy, scikit-learn
+
+Volatility modeling
+
+EWMA, GARCH
+
+Execution
+
+Kalshi limit orders
+
+Visualization
+
+Streamlit or React
+
+Backtesting
+
+Custom Python engine
+
+You absolutely do not need microsecond execution.
+
+I would start with:
+
+Polling market and price data every 5–15 seconds.
+
+Recalculating features every 30–60 seconds.
+
+Making trading decisions approximately once per minute.
+
+Using resting limit orders when appropriate.
+
+The objective is to identify mispricing that persists long enough to exploit, not compete with automated market makers over individual ticks.
+
+7. The most important part: Backtesting
+I would not put real money into this strategy until it passes a proper historical backtest.
+
+There are a few things I would specifically test.
+
+Experiment A: Does volatility normalization improve predictions?
+
+Compare:
+
+Simple directional prediction.
+
+Directional prediction using normalized distance from the target.
+
+Normalized distance plus momentum.
+
+Normalized distance plus momentum and volatility regime.
+
+Measure:
+
+Prediction accuracy.
+
+Brier score.
+
+Log loss.
+
+Calibration.
+
+Expected profit after fees.
+
+Experiment B: What point in the 15-minute window offers the best opportunity?
+
+Test entries at:
+
+Time into window
+
+Remaining time
+
+2 minutes
+
+13 minutes
+
+4 minutes
+
+11 minutes
+
+6 minutes
+
+9 minutes
+
+8 minutes
+
+7 minutes
+
+10 minutes
+
+5 minutes
+
+12 minutes
+
+3 minutes
+
+My hypothesis is that the middle portion of the window could offer an attractive balance between having enough price movement to establish a directional signal and retaining enough time for a mispriced contract to correct.
+
+But we need to test this rather than assume it.
+
+Experiment C: Does volatility expansion create opportunities?
+
+Compare performance when:
+
+Volatility is contracting.
+
+Volatility is normal.
+
+Volatility is expanding.
+
+Volatility is extremely high.
+
+I would be particularly interested in whether the market systematically underreacts to certain volatility regimes.
+
+Experiment D: Maker vs. taker execution
+
+Test whether resting limit orders improve net returns enough to compensate for missed fills.
+
+This is important because an apparently profitable strategy can become unprofitable once fees and the spread are included.
+
+Kalshi's fee schedule should be incorporated at the individual-fill level, not approximated as a constant percentage. 
+
+Kalshi
++1
+
+8. An additional strategy I would investigate: Volatility shock reversal
+There is another approach that I think is worth testing independently.
+
+Rather than following volatility expansion, attempt to exploit overreaction.
+
+The hypothesis:
+
+Gold experiences an unusually large movement.
+
+Kalshi's odds rapidly move toward one side.
+
+The underlying movement begins losing momentum.
+
+The market has overestimated the probability that the movement will persist until settlement.
+
+Buy the opposite side if its price is sufficiently attractive.
+
+For example:
+
+Gold spikes upward.
+
+YES increases from 48¢ to 82¢.
+
+Gold stops advancing and starts consolidating.
+
+Your model estimates YES at 68%, rather than the market's 82%.
+
+NO is available at 20¢.
+
+Your model estimates NO at 32%.
+
+You might buy NO if the expected edge survives fees and execution costs.
+
+This is not simply betting against momentum. It requires evidence that the market's implied probability has overshot the actual probability.
+
+I would keep this as a separate strategy initially, because combining momentum and reversal signals prematurely can make it difficult to identify where the profitability actually comes from.
+
+9. What I would build first
+If I were developing this as an actual quantitative trading project, I would prioritize these three milestones:
+
+Phase 1: Historical data collection and analysis
+
+Collect:
+
+Every KXGOLD15M market.
+
+Opening and settlement prices.
+
+One-minute Pyth price history.
+
+Kalshi YES/NO order books.
+
+Bid/ask spreads.
+
+Market trades and timestamps.
+
+Build a dataset that allows you to reconstruct what the model would have known at any point in a historical window.
+
+Phase 2: Build and compare three models
+
+I would implement:
+
+Volatility-adjusted probability model.
+
+Momentum plus volatility model.
+
+Volatility shock reversal model.
+
+Compare all three against a simple 50/50 baseline and a market-implied probability baseline.
+
+Phase 3: Paper trading
+
+Run the models against live market data without risking money.
+
+Record:
+
+Every signal.
+
+Estimated probability.
+
+Available execution price.
+
+Expected profit.
+
+Actual outcome.
+
+Simulated fees and fills.
+
+Actual paper P&L.
+
+Only advance to small live positions if the strategy demonstrates persistent out-of-sample profitability.
+
+One particularly important issue: use the actual Pyth settlement data when training and validating the model. A third-party gold spot feed is not interchangeable with the settlement feed. Even small discrepancies can invalidate predictions near the opening threshold. 
+
+PredictionMarketsPicks
++1
+
+10. My final recommendation
+If I were putting my own development time into this, I would prioritize the following:
+
+Strategy
+
+Priority
+
+Reason
+
+Volatility-adjusted probability
+
+1st
+
+Strongest foundation for systematic testing
+
+Momentum + volatility
+
+2nd
+
+Potentially improves directional predictions
+
+Volatility shock reversal
+
+3rd
+
+Interesting source of independent alpha
+
+Pure OBI strategy
+
+4th
+
+Better as an execution signal than standalone prediction
+
+I would not build a strategy that trades every window. I would build one that waits for unusual opportunities and is perfectly comfortable not trading for several consecutive windows.
+
+The edge needs to come from better probability estimates, not more trades.
+
+Three questions that would determine the implementation
+I want to narrow down the actual quantitative approach before designing the model and its backtesting infrastructure.
+
+1. What type of strategy do you want to prioritize?
+
+
+Volatility exploitation — profit from unusually large movements and changing volatility.
+
+Directional prediction — predict whether gold will finish above or below its starting price.
+
+Hybrid — combine volatility, momentum, and probability mispricing.
+2. What data do you currently have?
+
+
+I can collect historical and live data through APIs.
+
+I only have access to live Kalshi market data currently.
+
+I already have a Kalshi bot/data collection infrastructure I want to reuse.
+3. What does your ideal risk/reward look like?
+
+
+High probability of winning, smaller profits per trade.
+
+Asymmetric returns — willing to accept more losing trades for larger potential gains.
+
+Balanced — consistent positive expectancy with controlled drawdowns.
+My initial inclination is the hybrid approach. I think there is considerably more interesting quantitative work in determining when Kalshi is mispricing the probability of the final outcome than in simply predicting whether gold will go up or down.
+
+Back your ideas. Explain where you got them from, why they would work and what proof you have that it would work whether through proven projects or some other reason where I won’t end up with a bot that continuously loses or has alpha that is lost to kalshi fees
+I think this is exactly the right question to ask before writing any code. I would actually challenge several parts of my previous recommendation before investing time in implementation.
+
+There is a big difference between a mathematically sound trading model and a profitable trading strategy. A volatility model can estimate probabilities correctly and still lose money on Kalshi because of transaction fees, spreads, adverse selection, and the fact that other traders may already be exploiting the same information.
+
+I don't want to give you a sophisticated-looking bot that generates hundreds of trades, reports a positive theoretical expected value, and slowly loses your bankroll.
+
+My standard for proceeding would be:
+
+There must be a defensible reason the inefficiency exists.
+
+There must be evidence that the underlying predictive signal contains information.
+
+The signal must survive Kalshi's actual execution costs.
+
+It must demonstrate positive returns on data that wasn't used to develop it.
+
+It must remain profitable under pessimistic assumptions about fills and slippage.
+
+And I want to distinguish three things throughout this analysis:
+
+Established: Supported by financial mathematics, empirical research, or documented market mechanics.
+
+Plausible: Has a defensible economic or statistical rationale, but needs testing on KXGOLD15M.
+
+Unproven: An idea that should not be trusted with money until it passes an experiment.
+
+There is no honest way to promise that a strategy won't lose. The objective is to establish enough evidence before risking capital that we're not simply gambling with a statistical-looking interface.
+
+1. The most important evidence: Other people have already tested similar ideas on Kalshi
+I found something particularly relevant: a publicly documented paper-trading bot specifically for KXGOLD15M.
+
+It tested an early-momentum strategy, very similar to one of the strategies I suggested.
+
+KXGOLD15M momentum bot
+
+Inconclusive
+Windmill · August–October 2026 · 214 paper trades
+
++$16.70
+Total reported net P&L
+
++1.6¢
+Net profit per contract
+
+66.4%
+Win rate
+
+214
+Settled paper bets
+
+Results by trading period
+
+Period
+
+Trades
+
+Net P&L
+
+Aug 27–Sep 5
+
+116
+
++$18.69
+
+Oct 12–26
+
+98
+
+-$1.99
+
+Total
+
+214
+
++$16.70
+
+Source: Windmill's published bot and trade record. This is a self-reported paper-trading experiment, not an independently audited live trading record.
+
+The bot's strategy was relatively simple:
+
+Observe YES price movement over the previous 3–5 minutes.
+
+If YES moved up at least 5 cents, buy YES.
+
+If YES moved down at least 5 cents, buy NO.
+
+Only trade when the ask was between 30 and 80 cents.
+
+Skip the final six minutes.
+
+Buy five contracts and hold until settlement.
+
+It accounted for Kalshi fees.
+
+The really interesting finding is that its first trading period was profitable, but its second period was slightly unprofitable.
+
+The researchers behind the bot also calculated a 95% confidence interval of approximately -4.4 to +7.5 cents per contract. That interval includes zero. In other words, the apparent profitability could easily have been random variation. 
+
+Windmill
+
+My interpretation: Momentum is worth investigating, but we have no justification for deploying a momentum-only bot. There is actual evidence that a straightforward implementation produces an extremely weak and statistically inconclusive edge.
+
+This is precisely why I would not start by implementing the previous strategy and assuming it works.
+
+2. What does academic research tell us about exploiting Kalshi?
+There is another particularly relevant study:
+
+Makers and Takers: The Economics of the Kalshi Prediction Market
+
+Authors:
+
+Constantin Bürgi
+
+Wanying Deng
+
+Karl Whelan
+
+Published through the Centre for Economic Policy Research (CEPR), with a revised version dated January 2026.
+
+The researchers analyzed transaction-level data covering more than 300,000 Kalshi contracts. 
+
+CEPR
+
+Their findings are important:
+
+Kalshi prices contain meaningful information.
+
+Prices become more accurate as markets approach expiration.
+
+Low-priced contracts exhibit a favorite-longshot bias: they win less frequently than necessary to break even after fees.
+
+Makers generally earn higher returns than takers.
+
+There is evidence of behavioral pricing distortions.
+
+This is not a study specifically of KXGOLD15M, so we cannot assume its findings translate directly to gold.
+
+Nevertheless, it gives us a much better foundation for thinking about where an edge might exist.
+
+What this means for our strategy
+I would make two changes to my original proposal.
+
+First: Don't blindly buy cheap contracts.
+
+Imagine a contract costs 10 cents.
+
+It might look attractive because you can potentially make 90 cents on a 10-cent investment.
+
+But if its actual probability of winning is 7%, you're losing money in expectation.
+
+The fact that a contract is cheap does not mean it's undervalued.
+
+Second: Investigate maker execution.
+
+This is especially interesting.
+
+If other traders are consistently paying to take liquidity, there may be an opportunity to improve our entry price by posting resting limit orders.
+
+However, there is a catch: a limit order can get filled precisely when the market is moving against us. This is called adverse selection.
+
+We need to measure the profitability of actual maker fills, not just assume that avoiding taker fees creates an edge.
+
+3. The mathematics: Why volatility-adjusted probability is legitimate, but not necessarily profitable
+Let's separate the proven mathematical foundation from the unproven trading hypothesis.
+
+The mathematical foundation comes from the standard diffusion model used in financial mathematics.
+
+Under a simplified geometric Brownian motion model:
+
+d
+S
+t
+=
+μ
+S
+t
+d
+t
++
+σ
+S
+t
+d
+W
+t
+dS 
+t
+​
+ =μS 
+t
+​
+ dt+σS 
+t
+​
+ dW 
+t
+​
+ 
+The probability of gold finishing above its starting price, conditional on the current price, is:
+
+P
+(
+Y
+E
+S
+)
+=
+Φ
+(
+ln
+⁡
+(
+S
+t
+/
+S
+0
+)
++
+μ
+T
+σ
+T
+)
+P(YES)=Φ( 
+σ 
+T
+​
+ 
+ln(S 
+t
+​
+ /S 
+0
+​
+ )+μT
+​
+ )
+Here:
+
+S
+0
+S 
+0
+​
+  is the opening Pyth price.
+
+S
+t
+S 
+t
+​
+  is the current Pyth price.
+
+μ
+μ is the expected return per unit of time.
+
+σ
+σ is annualized or time-unit-consistent volatility.
+
+T
+T is the remaining time.
+
+Φ
+Φ is the standard normal CDF.
+
+For a short horizon, we can initially test a zero-drift assumption.
+
+This gives us a baseline probability model.
+
+Why should it work?
+
+Because it explicitly accounts for the fact that a price move becomes increasingly meaningful as the time remaining decreases, assuming the volatility estimate is appropriate.
+
+Consider two hypothetical situations:
+
+Quiet market
+
+Volatile market
+
+Opening price
+
+$4,000
+
+$4,000
+
+Current price
+
+$4,002
+
+$4,002
+
+Remaining time
+
+5 min
+
+5 min
+
+One-minute volatility
+
+0.005%
+
+0.025%
+
+Standardized distance
+
+3.58
+
+0.72
+
+The same $2 price movement has very different implications.
+
+This is why I like the model as a baseline.
+
+But here is the critical limitation:
+
+The model does not create an information advantage.
+
+If Kalshi traders are already observing the same Pyth price and estimating volatility, their contract prices may already reflect this probability.
+
+The model only becomes useful for trading if its probability estimates are systematically better than the executable Kalshi prices.
+
+The mathematical model is established. The claim that it beats KXGOLD15M is unproven.
+
+There is also an important modeling issue: gold can experience jumps, clustered volatility, changing liquidity, and intraday seasonal effects. A Gaussian model can underestimate the probability of unusual movements.
+
+Research on realized volatility forecasting supports using recent intraday observations to improve volatility estimates, but it does not establish profitable returns from trading these particular binary contracts. 
+
+Get Access
++2
+
+4. The biggest obstacle: Kalshi fees
+I want to spend more time here because this could make or break the entire project.
+
+Kalshi's published standard taker fee formula is:
+
+F
+=
+ceil
+⁡
+$
+0.01
+(
+0.07
+N
+P
+(
+1
+−
+P
+)
+)
+F=ceil 
+$0.01
+​
+ (0.07NP(1−P))
+Where:
+
+N
+N = contracts.
+
+P
+P = contract purchase price.
+
+Fees are rounded up to the nearest cent per order.
+
+Some series have different fee arrangements, so we must verify the current schedule for KXGOLD15M before deployment. 
+
+10.1.25 Update
++2
+
+What does that actually cost?
+Illustrative standard taker fees, assuming the published 7% formula.
+
+Purchase price
+
+1 contract fee
+
+100 contract fee per contract
+
+10¢
+
+1¢
+
+0.63¢
+
+25¢
+
+2¢
+
+1.32¢
+
+50¢
+
+2¢
+
+1.75¢
+
+75¢
+
+2¢
+
+1.32¢
+
+90¢
+
+1¢
+
+0.63¢
+
+Notice something important: the one-contract fee is rounded up independently. The fee per contract can therefore be substantially higher when trading small quantities.
+
+A practical example
+Suppose we buy 100 YES contracts at 51 cents.
+
+Trade economics
+
+Contract purchase
+
+$51.00
+
+Taker fee
+
+$1.75
+
+Total invested
+
+$52.75
+Winning payout
+
+$100.00
+
+Net profit if correct
+
++$47.25
+
+Net loss if incorrect
+
+-$52.75
+
+Break-even win probability
+
+52.75%
+You need to win more than 52.75% of the time to make money, even before accounting for any additional execution costs.
+
+And this is where I would impose a strict requirement:
+
+Never trade based on a predicted edge calculated from mid-market prices. Trade only when the edge exists against the actual executable ask.
+
+For buying NO, use the NO ask, not an inferred NO probability from the YES midpoint.
+
+What about maker orders?
+This is where I think we have a potentially more interesting opportunity.
+
+Consider:
+
+YES bid: 49¢.
+
+YES ask: 52¢.
+
+Our estimated fair value: 55¢.
+
+Instead of paying 52¢ immediately, we could place a limit order at 50¢.
+
+If filled, we have potentially improved our entry price by 2 cents.
+
+However, the fact that we get filled is not necessarily good news.
+
+Imagine that gold suddenly drops. Traders with better information may sell YES into our resting bid. We receive a fill precisely because our price is now unattractive.
+
+This is adverse selection.
+
+I would therefore measure:
+
+A
+S
+(
+h
+)
+=
+P
+m
+i
+d
+,
+t
++
+h
+−
+P
+f
+i
+l
+l
+AS(h)=P 
+mid,t+h
+​
+ −P 
+fill
+​
+ 
+For a YES buy, positive values indicate favorable subsequent movement relative to our fill price; negative values indicate adverse selection.
+
+Measure this at 10 seconds, 30 seconds, 60 seconds, and through settlement.
+
+We should only use maker execution if the actual realized improvement survives this selection effect.
+
+5. Evidence that the market is actually tradable
+I found another useful resource: a third-party historical data provider that has been recording KXGOLD15M trades and order books.
+
+Its reported dataset, updated November 2, 2026, includes:
+
+KXGOLD15M historical market data
+
+88
+Trading days captured
+
+25.6M
+Trade records
+
+$731.8M
+Reported cumulative turnover
+
+0.84¢
+Reported average spread
+
+Source: CryptoStruct KXGOLD15M historical data. These are the vendor's own captured-data statistics, not independently audited exchange statistics.
+
+This is encouraging from a data availability and liquidity perspective.
+
+It also presents a warning: there is substantial trading activity and potentially considerable competition.
+
+The provider reports approximately $14.3K of top-of-book depth in its latest 26-day measurement. That doesn't mean we can execute at that size at every moment, but it suggests that the market isn't necessarily too thin for a modest trading strategy. 
+
+CryptoStruct
+
+I would investigate whether we can obtain enough historical data to conduct a proper backtest before building any predictive model.
+
+The most valuable data would be:
+
+Every Pyth gold price update.
+
+Every Kalshi order book update.
+
+Every executed trade.
+
+Exact timestamps.
+
+Contract opening and closing prices.
+
+Settlement results.
+
+Fees and actual order execution prices.
+
+Without historical order book data, we can test whether a prediction was correct, but we cannot reliably determine whether it would have been profitable to trade.
+
+That distinction is critical.
+
+6. Which of my proposed strategies actually have evidence behind them?
+Here is my revised assessment.
+
+Strategy
+
+Scientific foundation
+
+KXGOLD15M evidence
+
+My verdict
+
+Volatility-adjusted probability
+
+Strong
+
+Not established
+
+Build as baseline
+
+Momentum
+
+Strong general literature
+
+Weak, inconclusive paper test
+
+Test independently
+
+Volatility regime detection
+
+Strong forecasting literature
+
+Not established
+
+Useful model feature
+
+Order book imbalance
+
+Established microstructure concept
+
+Not established for gold specifically
+
+Secondary feature
+
+Volatility shock reversal
+
+Plausible behavioral hypothesis
+
+No convincing evidence found
+
+Low priority
+
+Maker execution
+
+Established market-making economics
+
+General Kalshi evidence favors makers
+
+Investigate seriously
+
+I want to emphasize one distinction: volatility forecasting research establishes that volatility can be forecast to some degree. It does not establish that a volatility forecast can be monetized in a 15-minute binary market.
+
+Similarly, order book imbalance can explain short-term price changes without necessarily predicting the final settlement outcome.
+
+Those are different prediction problems.
+
+I would not spend development time on the reversal strategy yet. It has the weakest evidence of the approaches we discussed.
+
+7. What I would actually build instead
+After looking at the research, I would change the original architecture slightly.
+
+I would not start with three independent trading strategies. I would build one system with a probability model, a market-pricing benchmark, and an execution optimizer.
+
+The central question becomes:
+
+Can we estimate the probability of the gold contract settling YES or NO more accurately than the market, at the prices we can actually obtain?
+
+The proposed model
+Fee-aware gold probability model
+Input features
+
+Pyth price relative to opening price
+
+1, 3, 5 and 10-minute returns
+
+Realized volatility
+
+Volatility expansion/contraction
+
+Time remaining
+
+Intraday trading session
+
+Kalshi implied probability
+
+Order book imbalance
+
+Probability estimation
+
+Start with the diffusion model, then test logistic regression and gradient boosting.
+
+Output: calibrated probability of YES winning.
+
+Market comparison
+
+Compare our probability against:
+
+YES executable ask
+
+NO executable ask
+
+Transaction fees
+
+Spread and execution costs
+
+Model uncertainty
+
+Trade decision
+
+Buy YES
+
+Buy NO
+
+Post a resting limit order
+
+Do nothing
+
+The most important feature here is Kalshi's own implied probability.
+
+Why?
+
+Because we don't just want a model that predicts gold correctly. We want a model that predicts gold better than the market already does.
+
+I would train and compare:
+
+Market-implied probability alone.
+
+Diffusion probability model.
+
+Diffusion model plus volatility and momentum.
+
+Model 3 plus order book features.
+
+If adding a feature doesn't improve out-of-sample performance, remove it.
+
+I would favor logistic regression as the initial statistical model because it is interpretable and relatively resistant to overfitting compared with a complicated neural network.
+
+Gradient boosting can be a challenger model, not the starting assumption.
+
+8. The backtesting requirements I would enforce
+This is where I would be particularly strict.
+
+Test
+
+Minimum requirement
+
+Historical data
+
+Preferably several months of tick-level data
+
+Testing method
+
+Chronological walk-forward validation
+
+Price source
+
+Actual Pyth settlement feed
+
+Execution price
+
+Actual historical executable ask
+
+Fees
+
+Exact fee calculation and rounding
+
+Limit orders
+
+Conservative fill simulation
+
+Model validation
+
+Probability calibration
+
+Profitability
+
+Positive net P&L out of sample
+
+Statistical confidence
+
+95% confidence interval for net expectancy above zero
+
+I would also test three different cost scenarios:
+
+Normal: historical fees and realistic fills.
+
+Conservative: worse fills and additional slippage.
+
+Stress: spreads widen and limit orders receive unfavorable fills.
+
+A model that is profitable only in the normal scenario is not something I would trust with meaningful capital.
+
+One particularly important test
+I would measure the strategy against a baseline that simply buys the market's favorite side.
+
+For example, suppose our model achieves 72% prediction accuracy, but the market favorite also wins 73% of the time.
+
+Our model is not providing useful information.
+
+Even if it has 72% accuracy, we might be paying too much for those predictions.
+
+The relevant metric is not just accuracy. It is incremental profitability over the market's existing probability estimates.
+
+9. What I would consider proof that the strategy works
+I would establish several gates before allowing it to trade real money.
+
+Predictive validation
+
+The model must demonstrate better probability calibration and out-of-sample predictive performance than the market-implied baseline.
+
+I would use Brier score and log loss, alongside calibration plots.
+
+Economic validation
+
+Simulated trades must be profitable after:
+
+Taker or maker fees.
+
+Bid/ask spreads.
+
+Slippage.
+
+Unfilled limit orders.
+
+Adverse selection.
+
+A profitable prediction model is not enough.
+
+Statistical validation
+
+The lower bound of a 95% confidence interval for net expectancy should be positive.
+
+We should also check performance across different months and volatility regimes rather than relying on one favorable period.
+
+Live paper validation
+
+Run the strategy against live order books for at least several weeks.
+
+Compare its simulated fills against actual subsequent market behavior.
+
+Small-capital deployment
+
+Only then begin trading with very small positions.
+
+Keep a hard maximum loss per day and never use Kelly sizing until the probability model is sufficiently validated.
+
+I would also retract two recommendations from my earlier answer:
+
+The 0.8, 1.3 and 2.0 volatility regime thresholds were illustrative, not empirically established.
+
+The five-cent minimum expected edge was a proposed starting threshold, not a proven optimal trading threshold.
+
+Both should be determined using historical out-of-sample experiments.
+
+Likewise, I would not implement fractional Kelly at this stage. Incorrect probability estimates can make Kelly sizing extremely dangerous.
+
+10. My actual conclusion
+Here is where I stand after reviewing the evidence.
+
+Investment thesis
+Worth researching
+Fee-aware probability modeling with maker-first execution
+
+Why I favor it:
+
+Established mathematical foundation for estimating terminal price probabilities.
+
+Published research documenting pricing distortions and maker/taker differences on Kalshi.
+
+Historical KXGOLD15M order book and trade data exists.
+
+No need to compete at microsecond latency.
+
+Can explicitly refuse to trade when the expected edge is insufficient.
+
+Not yet proven profitable
+There is no evidence currently establishing that this combined strategy generates positive risk-adjusted returns on KXGOLD15M.
+
+I would rather spend two weeks proving that an idea doesn't work than spend two months building a bot that loses money.
+
+11. What I suggest we do next
+I think the next step should be a research and backtesting project, not an automated trading bot.
+
+There is one decision I would make before starting: acquire historical tick-level data, or build our own collection system and wait for sufficient data.
+
+Given that historical KXGOLD15M order book data is available from third-party vendors, I would investigate that first. The CryptoStruct archive is one option, although I would verify its data schema, timestamps, coverage, and costs before purchasing it.
+
+I would structure the project like this:
+
+Deliverable
+
+Objective
+
+Historical data pipeline
+
+Reconstruct past market states
+
+Market baseline
+
+Determine how well Kalshi already predicts outcomes
+
+Probability model
+
+Find incremental predictive information
+
+Execution simulator
+
+Calculate realistic after-fee profitability
+
+Strategy comparison
+
+Identify which signals actually generate alpha
+
+Paper trading
+
+Verify performance on live data
+
+One final question that materially affects how I would approach this:
+
+Would you be comfortable spending money on historical tick-level data (potentially tens of euros for a substantial sample), if it allows us to test whether a strategy is profitable before putting any actual trading capital at risk?
+
+My preference is yes. I don't want us to spend time building a sophisticated model only to discover that the historical data necessary to validate it doesn't exist.
+
+Is this still possible with fees
+Yes, I think it is still possible to make money on KXGOLD15M after fees. However, fees materially change which strategies are worth pursuing.
+
+My conclusion is that we should focus on relatively infrequent, high-edge trades and investigate maker execution. I would be much less interested in a bot that repeatedly takes liquidity at the market price.
+
+Here's why.
+
+1. The actual fee hurdle
+Kalshi's current standard taker fee is based on:
+
+F
+=
+0.07
+N
+P
+(
+1
+−
+P
+)
+F=0.07NP(1−P)
+For 100 contracts, the fee peaks at $1.75 when buying at 50¢. KXGOLD15M is reported as using the standard quadratic fee schedule. 
+
+Kalshi
++2
+
+Let's examine the economics:
+
+YES purchase price
+
+Fee per contract*
+
+Break-even probability
+
+30¢
+
+1.47¢
+
+31.47%
+
+40¢
+
+1.68¢
+
+41.68%
+
+50¢
+
+1.75¢
+
+51.75%
+
+60¢
+
+1.68¢
+
+61.68%
+
+70¢
+
+1.47¢
+
+71.47%
+
+*Assumes a sufficiently large order, standard multiplier of 1, and a single taker fill. Small orders can have different effective fees due to rounding.
+
+Notice that fees aren't necessarily prohibitive. You need an advantage over the purchase price, not an enormous predictive advantage.
+
+2. What kind of edge do we need?
+Consider buying YES at 50¢.
+
+Expected profit per contract
+Illustrative 100-contract taker order at 50¢, after 1.75¢ fee, before other execution costs.
+
+$-0.03
+$0
+$0.03
+$0.06
+$0.09
+50%
+52%
+54%
+56%
+60%
+50%: Expected profit $-0
+52%: Expected profit $0
+54%: Expected profit $0
+56%: Expected profit $0
+60%: Expected profit $0.1
+For example:
+
+Model estimates 50%: lose 1.75¢ per contract.
+
+Model estimates 52%: earn 0.25¢.
+
+Model estimates 54%: earn 2.25¢.
+
+Model estimates 56%: earn 4.25¢.
+
+This is before any additional slippage.
+
+My proposed minimum would be approximately 5 cents of net expected edge per contract after fees and estimated execution costs, at least during initial testing.
+
+At a 50¢ ask and 1.75¢ fee, that means our model needs to estimate at least a 56.75% probability of YES winning.
+
+That's a meaningful hurdle, but not an unreasonable one to investigate.
+
+3. Why I think maker execution is particularly interesting
+There is an important distinction between two execution methods.
+
+Taker execution
+
+Higher cost
+You immediately buy from someone else's resting order.
+
+Pay the ask.
+
+Pay taker fees.
+
+Get immediate execution.
+
+Maker execution
+
+Potentially lower cost
+You place a resting limit order and wait for someone to trade against it.
+
+Control your maximum purchase price.
+
+Standard KXGOLD15M fee classification is reported as maker-fee-free.
+
+May not get filled.
+
+Can suffer adverse selection.
+
+Kalshi's fee documentation distinguishes resting orders from immediately matched orders. 
+
+Kalshi Help Center
++2
+
+For example, suppose:
+
+YES bid: 48¢.
+
+YES ask: 51¢.
+
+Your estimated fair value: 57¢.
+
+Instead of immediately paying 51¢, you could place a resting order at 49¢.
+
+If filled, you potentially capture a much better entry price without the standard taker fee.
+
+However, we must prove that these fills aren't disproportionately happening just before gold moves against us.
+
+I would consider this a serious research direction, not a guaranteed source of profit.
+
+4. My revised strategy priorities
+Strategy
+
+Fee suitability
+
+Priority
+
+Probability mispricing + maker orders
+
+Excellent potential
+
+1
+
+Volatility-adjusted directional prediction
+
+Good if edge is large
+
+2
+
+Momentum with taker execution
+
+More difficult
+
+3
+
+Frequent volatility scalping
+
+Poor
+
+Avoid initially
+
+Buy-and-hold to settlement
+
+Avoids exit transaction
+
+Conditional
+
+One other important consideration: if we buy a contract and hold until settlement, we avoid paying another trading fee to exit. If we continuously enter and exit positions, the fees can eat into the edge very quickly.
+
+5. What I would require before deploying
+I would set up the backtest to report these metrics separately:
+
+Gross predictive edge.
+
+Taker fees.
+
+Maker fees.
+
+Spread cost.
+
+Slippage.
+
+Adverse selection.
+
+Net expected profit.
+
+Maximum drawdown.
+
+Then I would run a comparison between:
+
+Taking liquidity immediately.
+
+Posting resting limit orders.
+
+Only trading when the model identifies an unusually large probability discrepancy.
+
+If the third strategy cannot produce positive net returns, we don't deploy it.
+
+My honest verdict
+Worth investigating
+I don't think Kalshi's fees make this market inherently unprofitable for a quantitative trader.
+
+However, I do think they make low-edge, high-frequency approaches particularly unattractive.
+
+The potential opportunity is not simply predicting gold better. It is combining:
+
+Better estimates of settlement probabilities.
+
+Selective trading.
+
+Favorable entry prices.
+
+Low transaction costs.
+
+One thing I would prioritize above everything else is determining whether we can achieve positive expectancy using maker orders on KXGOLD15M.
+
+If we can demonstrate that with historical order book data, we have a much more compelling reason to build the bot. If we can't, I would want strong evidence of a substantially larger predictive edge before proceeding.
+
+For a given day what would be expected profit running the bot 24/7
+The honest answer is that I would not budget for any daily profit yet, because we haven't demonstrated that our strategy has a positive edge after fees.
+
+However, we can calculate what the bot would make under different performance assumptions, and that gives us a useful target.
+
+The important distinction is that running 24/7 doesn't mean trading every 15 minutes. There are potentially 96 fifteen-minute windows in a day, but I would expect the bot to skip most of them and only trade when it identifies a sufficiently large pricing discrepancy.
+
+1. Expected daily profit under different scenarios
+Let's assume:
+
+10 contracts per trade.
+
+Average net expected profit of 3¢, 5¢, or 8¢ per contract.
+
+Net profit already accounts for fees, spread, and execution costs.
+
+The bot holds contracts to settlement.
+
+Scenario analysis
+The following assumes 10 contracts per filled trade. The edge is net expected profit per contract, after all costs.
+
+Trades/day
+
+3¢ edge
+
+5¢ edge
+
+8¢ edge
+
+5
+
+$1.50
+
+$2.50
+
+$4.00
+
+10
+
+$3.00
+
+$5.00
+
+$8.00
+
+20
+
+$6.00
+
+$10.00
+
+$16.00
+
+40
+
+$12.00
+
+$20.00
+
+$32.00
+
+These are expected values, not guaranteed daily profits. A day could be negative even if the model has positive long-run expectancy.
+
+Also, 40 trades per day would be an aggressive assumption. I would rather have 5–10 well-selected trades than force the bot to trade every available window.
+
+2. What does an actual paper-trading bot suggest?
+There is a useful real-world comparison.
+
+The previously mentioned Windmill KXGOLD15M momentum bot recorded:
+
+214 settled bets.
+
+5 contracts per bet.
+
+$16.70 total realized paper profit.
+
+Approximately 1.56¢ profit per contract.
+
+142 winning bets out of 214.
+
+Its bets occurred across two active periods, August 27–September 5 and October 12–26, 2026. 
+
+Windmill
++1
+
+That translates to approximately:
+
+$0.67
+Profit per active calendar day
+
+$0.08
+Profit per five-contract bet
+
+This is a much more grounded reference than assuming our hypothetical 5–8¢ edge will materialize.
+
+But the bot's second trading period lost money, and the total sample is too small to establish persistent profitability.
+
+My interpretation: A basic momentum bot might produce very modest profits, even when its overall paper record is positive. We need a demonstrably better signal before expecting meaningful income.
+
+3. What if we increase the capital?
+Let's use an illustrative scenario:
+
+10 trades per day.
+
+5¢ net expected edge per contract.
+
+Contracts sized according to available capital.
+
+Contracts per trade
+
+Expected daily profit
+
+Expected monthly profit (30 days)
+
+5
+
+$2.50
+
+$75
+
+10
+
+$5.00
+
+$150
+
+25
+
+$12.50
+
+$375
+
+50
+
+$25.00
+
+$750
+
+100
+
+$50.00
+
+$1,500
+
+This assumes every trade can be filled at the same prices and edge, which is unlikely as position size grows. Larger orders can consume available liquidity and reduce the edge.
+
+One correction: the monthly column above assumes 30 active trading days. Gold's 15-minute markets aren't available literally 24/7. They follow the underlying futures trading schedule, approximately Sunday evening through Friday afternoon Eastern, with a daily break. A more realistic planning month has around 22 active weekdays. 
+
+PM Countdown
++1
+
+Using 22 days, the 10-trade-per-day scenario becomes:
+
+Contracts/trade
+
+Monthly expected profit
+
+5
+
+$55
+
+10
+
+$110
+
+25
+
+$275
+
+50
+
+$550
+
+100
+
+$1,100
+
+Again, these are hypothetical, not forecasts.
+
+4. What I would actually target
+I would set three development targets:
+
+Initial target
+$1–$3/day
+
+Prove that the strategy can consistently generate positive net expectancy with small positions.
+
+Intermediate target
+$5–$15/day
+
+Demonstrate a repeatable edge, increase position sizes cautiously, and maintain acceptable drawdowns.
+
+Stretch target
+$20–$50/day
+
+Requires substantially more capital, reliable execution, and an edge that persists at larger order sizes.
+
+These are development goals, not estimates of what the bot is likely to earn.
+
+My recommendation: Before choosing a bankroll, let's backtest the strategy and establish its actual net expected profit per contract.
+
+The most useful number we can eventually obtain is:
+
+Daily EV
+=
+Trades per day
+×
+Contracts per trade
+×
+Net EV per contract
+Daily EV=Trades per day×Contracts per trade×Net EV per contract
+Until we establish that final variable using out-of-sample data, any daily dollar estimate is speculation.
+
+I'd much rather build a bot that earns an expected $3/day reliably than one that appears to earn $50/day in a backtest but loses money in reality.
+
